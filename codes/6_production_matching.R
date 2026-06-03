@@ -12,6 +12,10 @@ source("./codes/F1_excess_distribution.R")
 #   return(NULL)
 # })
 
+
+#### to be added, irrigation)
+#### to be added, weird crop handling (pota, soy, anything that was before in GLOBIOM and is not in the new EPIC runs)
+
 irri.rast.cropped <- NULL
 
 if (!is.null(irri.rast.cropped)) {
@@ -36,24 +40,26 @@ if (!is.null(irri.rast.cropped)) {
     mutate(irri.perc = ifelse(is.na(area / total_area), 0, area / total_area)) %>%
     mutate(irri.perc = ifelse(irri.perc > 1, 1, irri.perc))
 
+
+  #### bugfix take care in case lum class mapping ever changes, this is hardcoded
   crop.ares.LUM <- temp.LUM %>% group_by(CELLCODE) %>% mutate(total=sum(total_area), share=total_area/total) %>% dplyr::select(CELLCODE, LUM.class, share) %>% full_join(result %>% rename("CELLCODE"="ns")) %>% mutate(value=share*sum_value) %>% dplyr::select(CELLCODE, LUM.class, lu.to, value)%>%
     mutate(LUM.class = case_when(
-      LUM.class %in% lum_crop_map[c(1,6)] ~ "M1.rf",
-      LUM.class %in% lum_crop_map[c(2,7)] ~ "M2.rf",
-      LUM.class %in% lum_crop_map[c(3,8)] ~ "M3.rf",
-      LUM.class %in% lum_crop_map[c(4,9)] ~ "M4.rf",
-      LUM.class %in% lum_crop_map[c(5,10)] ~ "M5.rf",
+      LUM.class %in% lum_crop_map[c(1)] ~ "M1.rf",
+      LUM.class %in% lum_crop_map[c(2)] ~ "M2.rf",
+      LUM.class %in% lum_crop_map[c(3)] ~ "M3.rf",
+      LUM.class %in% lum_crop_map[c(4)] ~ "M4.rf",
+      LUM.class %in% lum_crop_map[c(5)] ~ "M5.rf",
       TRUE ~ as.character(LUM.class)  # Keep other values unchanged
     )) %>% left_join(temp.irri)
 
 } else {
   crop.ares.LUM <- temp.LUM %>% group_by(CELLCODE) %>% mutate(total=sum(total_area), share=total_area/total) %>% dplyr::select(CELLCODE, LUM.class, share) %>% full_join(result %>% rename("CELLCODE"="ns")) %>% mutate(value=share*sum_value) %>% dplyr::select(CELLCODE, LUM.class, lu.to, value)%>%
     mutate(LUM.class = case_when(
-      LUM.class %in% lum_crop_map[c(1,6)] ~ "M1.rf",
-      LUM.class %in% lum_crop_map[c(2,7)] ~ "M2.rf",
-      LUM.class %in% lum_crop_map[c(3,8)] ~ "M3.rf",
-      LUM.class %in% lum_crop_map[c(4,9)] ~ "M4.rf",
-      LUM.class %in% lum_crop_map[c(5,10)] ~ "M5.rf",
+      LUM.class %in% lum_crop_map[c(1)] ~ "M1.rf",
+      LUM.class %in% lum_crop_map[c(2)] ~ "M2.rf",
+      LUM.class %in% lum_crop_map[c(3)] ~ "M3.rf",
+      LUM.class %in% lum_crop_map[c(4)] ~ "M4.rf",
+      LUM.class %in% lum_crop_map[c(5)] ~ "M5.rf",
       TRUE ~ as.character(LUM.class)  # Keep other values unchanged
     ))
 }
@@ -68,7 +74,7 @@ if(sum(temp.prod$current.prod)!=0){
 target.prod <- targets.prod %>% mutate(value=value*1000)
 
 combi.grid.pos <- data.frame(LUM.from=c("M1.rf","M2.rf","M3.rf","M4.rf","M5.rf"), LUM.to=c("M2.rf","M3.rf","M4.rf","M5.rf","M5.rf"))
-combi.grid.neg <- data.frame(LUM.to=c("M1.rf","M1.rf","M2.rf","M3.rf","M4.rf", "M5.rf"), LUM.from=c("M1.rf","M2.rf","M3.rf","M4.rf","M5.rf", "M5.ir"))
+combi.grid.neg <- data.frame(LUM.to=c("M1.rf","M1.rf","M2.rf","M3.rf","M4.rf"), LUM.from=c("M1.rf","M2.rf","M3.rf","M4.rf","M5.rf"))
 
 ##### adjustment for production in a loop
 adj.crops <- temp.prod$lu.to[temp.prod$current.prod>0]
@@ -191,3 +197,7 @@ final.prod <- final.prod %>% rename("GLOBIOM"="lu.to") %>% left_join(targets.pro
 show.res <- final.areas %>% left_join(final.prod)
 show.res$region <- lama.reg
 show.res$year <- curr.year
+
+final.targets <- ds.targets %>% rename("area"="value") %>%
+  left_join(targets.prod %>% rename("lu.to"= "GLOBIOM")) %>% rename("prod"="value")  %>%
+  mutate(region=country)

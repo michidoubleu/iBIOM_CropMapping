@@ -50,19 +50,31 @@ if(length(unique(ds.start.areas$ns))!=length(unique(ds.priors$ns))){
 }
 
 
-##### BUGFIX, as last one ine the namings is somehow missing the target by peanuts
-min.target <- ds.targets$lu.to[which(ds.targets$value==min(ds.targets$value[ds.targets$value!=0]))]
-new.name <- paste0("ZZ",min.target)
+##### bugfix, make priors sum to 1
+ds.priors <- ds.priors %>% group_by(ns) %>% mutate(value=value/sum(value))
 
-ds.targets$lu.to[ds.targets$lu.to == min.target] <- new.name
-ds.priors$lu.to[ds.priors$lu.to == min.target] <- new.name
 
-test <- downscale(ds.targets, ds.start.areas, xmat = NULL,betas = NULL ,priors = ds.priors, options=downscale_control(cutoff=1.0e-8))
+##### BUGFIX, remove OthAgri and ad the remaining areas after again
+
+ds.targets <- ds.targets %>% filter(lu.to!="OthAgr")
+
+test <- downscale(ds.targets, ds.start.areas, xmat = NULL,betas = NULL ,priors = ds.priors)
 test$out.res <- as.data.table(test$out.res)
 
-test$out.res$lu.to[test$out.res$lu.to == new.name] <- min.target
-ds.targets$lu.to[ds.targets$lu.to == new.name] <- min.target
-ds.priors$lu.to[ds.priors$lu.to == new.name] <- min.target
+##### BUGFIX, remove OthAgri and ad the remaining areas after again
+residual_rows <- test$out.res %>%
+  group_by(times, ns) %>%
+  summarise(sum_val = sum(value, na.rm = TRUE), .groups = "drop") %>%
+  inner_join(ds.start.areas, by = "ns") %>%
+  mutate(
+    lu.to = "OthAgr",
+    value = value - sum_val # 'value' from ds.start.areas minus 'sum_val'
+  ) %>%
+  select(times, ns, lu.to, value)
+
+test$out.res <- bind_rows(test$out.res, residual_rows)
+
+
 
 
 # Group by `ns` and `lu.to`, then sum the `value`
