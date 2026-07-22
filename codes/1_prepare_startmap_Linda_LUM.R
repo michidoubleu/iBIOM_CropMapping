@@ -31,6 +31,6 @@ temp.LUM <- temp.LUM[LUM.class %in% lum_crop_map]
 temp.LUM <- temp.LUM[, .(total_area = sum(area)), by = .(CELLCODE, LUM.class)]
 
 crop.area <- temp.LUM[, .(total_area = sum(total_area)), by = .(CELLCODE)]
-crop.area <- merge(crop.area, EEA_NUTS, by = "CELLCODE", all.x = TRUE)
+crop.area_old <- merge(crop.area, EEA_NUTS, by = "CELLCODE", all.x = TRUE)
 
 unique.CELLCODES <- unique(crop.area$CELLCODE)

@@ -10,6 +10,8 @@ LUM.path        <- file.path(INPUT_DIR, "LUM_data/")
 mapping.path    <- file.path(INPUT_DIR, "mappings/")
 LUM.energy.path <- file.path(INPUT_DIR, "LUM_fit_with_energy_levels_V5/")
 SimU.path       <- file.path(INPUT_DIR, "SIMU_LAEA/5arcmin_simu_world_ETRS_1989_LAEA_wsimuID.shp")
+#irri.path       <- file.path(INPUT_DIR, "Irrigation_hybrid_layer/comparative_layer_acc_esa_irr.tif")
+irri.path       <- file.path(INPUT_DIR, "irrigation_Bonn/Total_IR_A_2010.tif")
 #### cluster setup
 
 
@@ -42,11 +44,11 @@ EEA.grid <- EEA.grid[grepl(country,EEA.grid)]
 EEA.grid <- list.files(EEA.grid, full.names = TRUE)
 EEA.grid <- EEA.grid[grepl(".shp",EEA.grid)]
 
-#### irrigation map
-irrig.path <- list.files(file.path(INPUT_DIR, "irrigation/"), full.names = T)
-irrig.path <- irrig.path[!grepl(".ovr",irrig.path)]
-irrig.path <- irrig.path[!grepl(".qml",irrig.path)]
-irrig.path <- irrig.path[!grepl(".aux",irrig.path)]
+# #### irrigation map
+# irrig.path <- list.files(file.path(INPUT_DIR, "irrigation/"), full.names = T)
+# irrig.path <- irrig.path[!grepl(".ovr",irrig.path)]
+# irrig.path <- irrig.path[!grepl(".qml",irrig.path)]
+# irrig.path <- irrig.path[!grepl(".aux",irrig.path)]
 
 #### load mapping for country
 EEA_NUTS <- read.csv(file.path(mapping.path,"EEAref_LAMAnuts_mapping_oct17.csv"))
@@ -57,3 +59,27 @@ curr.EEA_NUTS <- EEA_NUTS %>% filter(substr(NUTS_ID,1,length.curr.nuts)==lama.re
 crop_mapping <- read.csv(file.path(mapping.path,"CROP_mapping.csv"))
 colnames(crop_mapping)[1] <- "CAPRI"
 setDT(crop_mapping)
+
+##### irrigation mapping
+aqua_to_globiom <- tribble(
+  ~Item,                ~GLOBIOM,
+  "Wheat",              "Whea",
+  "Barley",             "Barl",
+  "Potatoes",           "Pota",
+  "Soybeans",           "Soya",
+  "Sugar beet",         "Sgbt",
+  "Sunflower",          "Sunf",
+  "Maize",              "Corn",
+  "Other cereals",      "Rice",
+  "Other cereals",      "Srgh",
+  "Other cereals",      "Mill",
+  "Other cereals",      "WRye",
+  "Leguminous crops",   "BeaD",
+  "Leguminous crops",   "ChkP",
+  "Other crops",        "Cass",
+  "Other crops",        "SwPo",
+  "Other crops",        "SugC",
+  "Other crops",        "Cott",
+  "Other crops",        "Rape",
+  "Other crops",        "Gnut"
+)

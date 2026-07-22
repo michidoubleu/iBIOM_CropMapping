@@ -95,13 +95,11 @@ final.alloc <- other.agri.res %>%
   # Add fixed or placeholder columns
   mutate(
     LUM.class = "OthAgr",
-    lu.to     = "OthAgr",
-    irrigation = NA_real_,
-    area = NA_real_
+    lu.to     = "OthAgr"
   ) %>%
 
   # Reorder columns
-  select(CELLCODE, LUM.class, lu.to, value, irrigation, area)
+  select(CELLCODE, LUM.class, lu.to, value)
 
 
 # Calculate column sums for all numeric columns

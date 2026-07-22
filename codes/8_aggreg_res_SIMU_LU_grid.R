@@ -5,11 +5,12 @@ library(ggplot2)
 igdx("C:/GAMS/49")
 
 source("codes/S3_read_gms.R")
-cropmap <- read.csv("./save.from.clusteroverload/CELLCODE_SimU_mapping.csv")
 
-last.file <- list.files("output/aggregated/", full.names = T)
-last.file <- last.file[grepl(as.character(max(unique(as.numeric(substr(last.file,19,22))))),last.file)]
-load(last.file)
+cropmap <- read.csv(paste0(mapping.path,"/CELLCODE_SimU_mapping.csv"))
+
+select.file <- list.files(paste0("output/",RESULT_TAG,"/aggregated/"), full.names = T)
+select.file <- select.file[grepl(RESULT_TAG,select.file)]
+load(select.file)
 res.IDs <- unique(agg.res$res$CELLCODE)
 
 cropmap <- cropmap %>%
@@ -18,7 +19,8 @@ cropmap <- cropmap %>%
 
 SimU.res <- agg.res$res %>% left_join(cropmap) %>% group_by(SimUID, LUM.class, lu.to, year) %>% summarise(value=sum(value))
 
-full.map <- readRDS("input/SimU_CR_LU_map.rds")
+
+full.map <- readRDS(paste0(mapping.path,"/SimU_CR_LU_map.rds"))
 full.map <- full.map %>% rename("AllColRow"="ColRow30", "ANYREGION"="ALLCOUNTRY", "AEZCLASS"="AezClass") %>% dplyr::select(-ALLCOLROW)
 
 LUID.res <- SimU.res %>% left_join(full.map %>% mutate(SimUID=as.numeric(SimUID))) %>% na.omit() %>%
@@ -40,17 +42,15 @@ LUID.res <- LUID.res %>% mutate(ALLTECH = case_when(
   LUM.class== "M3.rf"~ "HI",
   LUM.class== "M4.rf"~ "HI",
   LUM.class== "M5.rf"~ "HI",
+  LUM.class== "M5.ir"~ "IR",
   TRUE ~ as.character(LUM.class))) %>%
   group_by(ANYREGION, AllColRow, AltiClass, SlpClass, SoilClass, lu.to, ALLTECH)%>%
   summarise(value=sum(value)/10) %>% mutate(SPECIES=lu.to, ALLITEM="BaseArea") %>%
-  ungroup() %>% dplyr::select(-lu.to)  # Keep other values unchanged
+  ungroup() %>% dplyr::select(-lu.to) %>% filter(!(SPECIES=="OthAgr"&ALLTECH!="OthAgr"))  # Keep other values unchanged
 
-saveRDS(LUID.res, file="output/simu_res/SimU_res.rds")
+res.123 <- LUID.res %>% group_by(ANYREGION, SPECIES, ALLTECH) %>% summarise(value=sum(value)) %>% pivot_wider(names_from = "ALLTECH", values_from = "value")
 
-
-    #I want to aggregate across regions and sum up the values
-
-
+saveRDS(LUID.res, file=paste0("output/",RESULT_TAG,"/simu_res/",RESULT_TAG,"_SimU_res.rds"))
 
 
 
