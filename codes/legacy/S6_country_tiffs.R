@@ -37,7 +37,7 @@ area_sf <- temp.EEA %>%
   left_join(area_wide, by = "CELLCODE") %>%
   mutate(across(where(is.numeric), ~ replace_na(., 0)))
 yld_sf <- temp.EEA %>%
-  left_join(area_wide, by = "CELLCODE")%>%
+  left_join(yield_wide, by = "CELLCODE")%>%
   mutate(across(where(is.numeric), ~ replace_na(., 0)))
 
 # Ensure the output directory exists

@@ -1,10 +1,11 @@
+##### CODE 15: aggregate results to SimU and GLOBIOM LU grid
+
 library(gdxrrw)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-igdx("C:/GAMS/49")
+igdx(GAMS_PATH)
 
-source("codes/S3_read_gms.R")
 
 cropmap <- read.csv(paste0(mapping.path,"/CELLCODE_SimU_mapping.csv"))
 
@@ -17,14 +18,25 @@ cropmap <- cropmap %>%
   filter(CELLCODE %in% res.IDs) %>%
   distinct()
 
-SimU.res <- agg.res$res %>% left_join(cropmap) %>% group_by(SimUID, LUM.class, lu.to, year) %>% summarise(value=sum(value))
+### per-ha attributes (yield + additional variables) are aggregated area-weighted:
+### carry sum(x*area) and sum(area where x available) through all aggregations, divide at the end
+attr.vars <- intersect(c("YLD", extra_vars), names(agg.res$res))
+attr.w    <- paste0("w.", attr.vars)
+
+SimU.res <- agg.res$res %>% left_join(cropmap) %>%
+  mutate(across(all_of(attr.vars), ~ ifelse(is.na(.x), 0, value), .names = "w.{.col}"),
+         across(all_of(attr.vars), ~ coalesce(.x * value, 0))) %>%
+  group_by(SimUID, LUM.class, lu.to, year) %>%
+  summarise(across(c(value, all_of(attr.vars), all_of(attr.w)), sum), .groups = "drop")
 
 
-full.map <- readRDS(paste0(mapping.path,"/SimU_CR_LU_map.rds"))
-full.map <- full.map %>% rename("AllColRow"="ColRow30", "ANYREGION"="ALLCOUNTRY", "AEZCLASS"="AezClass") %>% dplyr::select(-ALLCOLROW)
+full.map <- readRDS(SimU.map.path)
+### GLOBIOM AllColRow uses the LU codes (ALLCOLROW), not the CR codes (ColRow30)
+full.map <- full.map %>% rename("AllColRow"="ALLCOLROW", "ANYREGION"="ALLCOUNTRY", "AEZCLASS"="AezClass") %>% dplyr::select(-ColRow30)
 
-LUID.res <- SimU.res %>% left_join(full.map %>% mutate(SimUID=as.numeric(SimUID))) %>% na.omit() %>%
-  group_by(ANYREGION, AllColRow, AltiClass, SlpClass, SoilClass, AEZCLASS, LUM.class, lu.to, year) %>% summarise(value=sum(value))
+LUID.res <- SimU.res %>% left_join(full.map %>% mutate(SimUID=as.numeric(SimUID))) %>% filter(!is.na(ANYREGION)) %>%
+  group_by(ANYREGION, AllColRow, AltiClass, SlpClass, SoilClass, AEZCLASS, LUM.class, lu.to, year) %>%
+  summarise(across(c(value, all_of(attr.vars), all_of(attr.w)), sum), .groups = "drop")
 
 ### first just area, then yields as well. also need to add yields for other crops for full result coverage
 ### at this stage also need to filter out countries that are not supposed to have results
@@ -32,7 +44,7 @@ LUID.res <- SimU.res %>% left_join(full.map %>% mutate(SimUID=as.numeric(SimUID)
 countries = c("Spain", "Portugal", "Germany", "Greece", "Italy", "Netherlands", "Hungary", "Bulgaria",
               "Romania", "Poland", "CzechRep", "UK", "France", "Austria", "Sweden", "Slovakia",
               "Slovenia", "Cyprus", "Denmark", "Finland", "Croatia", "Lithuania", "Estonia", "Malta",
-              "Latvia", "Ireland", "Belgium")
+              "Latvia", "Ireland", "Belgium", "Luxembourg")
 
 LUID.res <- LUID.res %>% filter(ANYREGION %in% countries)
 
@@ -45,10 +57,20 @@ LUID.res <- LUID.res %>% mutate(ALLTECH = case_when(
   LUM.class== "M5.ir"~ "IR",
   TRUE ~ as.character(LUM.class))) %>%
   group_by(ANYREGION, AllColRow, AltiClass, SlpClass, SoilClass, lu.to, ALLTECH)%>%
-  summarise(value=sum(value)/10) %>% mutate(SPECIES=lu.to, ALLITEM="BaseArea") %>%
-  ungroup() %>% dplyr::select(-lu.to) %>% filter(!(SPECIES=="OthAgr"&ALLTECH!="OthAgr"))  # Keep other values unchanged
+  summarise(across(c(value, all_of(attr.vars), all_of(attr.w)), sum), .groups = "drop")
 
-res.123 <- LUID.res %>% group_by(ANYREGION, SPECIES, ALLTECH) %>% summarise(value=sum(value)) %>% pivot_wider(names_from = "ALLTECH", values_from = "value")
+# back from area-weighted sums to per-ha values
+for (v in attr.vars) LUID.res[[v]] <- LUID.res[[v]] / LUID.res[[paste0("w.", v)]]
+
+LUID.res <- LUID.res %>%
+  mutate(BaseArea = value/10, SPECIES = lu.to) %>%
+  dplyr::select(-lu.to, -value, -all_of(attr.w)) %>% filter(!(SPECIES=="OthAgr"&ALLTECH!="OthAgr")) %>%  # Keep other values unchanged
+  ### long GLOBIOM CROP_DATA style: ALLITEM = BaseArea, <SPECIES> (yield), FTN, IRGA, ...
+  pivot_longer(c(BaseArea, all_of(attr.vars)), names_to = "ALLITEM", values_to = "value") %>%
+  filter(!is.na(value)) %>%
+  mutate(ALLITEM = ifelse(ALLITEM == "YLD", SPECIES, ALLITEM))
+
+res.123 <- LUID.res %>% filter(ALLITEM == "BaseArea") %>% group_by(ANYREGION, SPECIES, ALLTECH) %>% summarise(value=sum(value)) %>% pivot_wider(names_from = "ALLTECH", values_from = "value")
 
 saveRDS(LUID.res, file=paste0("output/",RESULT_TAG,"/simu_res/",RESULT_TAG,"_SimU_res.rds"))
 

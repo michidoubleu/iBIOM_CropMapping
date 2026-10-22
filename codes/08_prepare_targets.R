@@ -1,4 +1,4 @@
-#### CODE 3: prepare targets from CAPRI!
+##### CODE 08: prepare area, production and irrigation targets (FAO or GLOBIOM, AQUASTAT)
 
 #### Author: Michael Wögerer
 #### Date: 03/02/2025
@@ -11,9 +11,15 @@ fao_to_globiom <- crop_mapping %>%
   { setNames(.$GLOBIOM, .$FAO) }
 
 
+# BUGFIX namings in the FAO output (also needed for AQUASTAT below, so defined for both target sources)
+country_map <- c(
+  "United Kingdom of Great Britain and Northern Ireland" = "Great-Britain",
+  "Netherlands (Kingdom of the)"                         = "Netherlands"
+)
+
 #### add GLOBIOM targets
 if(GLOBIOM_targets){
-GLOB.targets <- readRDS("input/croptargets_GLOBIOM.rds")
+GLOB.targets <- readRDS(GLOBIOM.target.path)
 
 GLOB.targets <- GLOB.targets %>% filter(substr(NUTS_ID,1,nchar(lama.reg))==lama.reg) %>% group_by(SPECIES) %>% summarise(BaseArea=sum(BaseArea), production=sum(production))
 GLOB.targets.area <- GLOB.targets %>% ungroup() %>% mutate(value=BaseArea/100, GLOBIOM=SPECIES)%>% dplyr::select(GLOBIOM, value)
@@ -27,11 +33,6 @@ FAO_targets <- readRDS(file.path(target.path, "faostat_avg_1998_2002.rds"))
 
 
 
-# BUGFIX namings in the FAO output
-country_map <- c(
-  "United Kingdom of Great Britain and Northern Ireland" = "Great-Britain",
-  "Netherlands (Kingdom of the)"                         = "Netherlands"
-)
 matches <- FAO_targets$Area %in% names(country_map)
 FAO_targets$Area[matches] <- country_map[FAO_targets$Area[matches]]
 

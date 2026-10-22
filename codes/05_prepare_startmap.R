@@ -1,4 +1,4 @@
-##### CODE 1: prepare start areas from Linda map!
+##### CODE 05: prepare start areas from Linda LUM map (100 m LUM classes aggregated to the 1 km² EEA grid)
 
 #### Author: Michael Wögerer
 #### Date: 08/01/2025

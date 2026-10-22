@@ -1,0 +1,10 @@
+GLOBIOM_abr,EPIC_proxy,rationale
+Srgh,Corn,C4 summer cereal with similar phenology and management (sorghum ~ maize)
+Mill,Corn,C4 summer cereal (millet ~ maize)
+SugC,Corn,C4 perennial grass; closest C4 crop simulated (not grown in the EU)
+BeaD,Soya,N-fixing grain legume (dry beans ~ soybean)
+ChkP,Soya,N-fixing grain legume (chickpea ~ soybean)
+Gnut,Soya,N-fixing oilseed legume (groundnut ~ soybean)
+Cott,Sunf,warm-season dicot row crop with deep rooting and long season (cotton ~ sunflower)
+Cass,Pota,root/tuber crop with similar residue and soil disturbance at harvest (cassava ~ potato)
+SwPo,Pota,root/tuber crop (sweet potato ~ potato)

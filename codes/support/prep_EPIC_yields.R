@@ -1,12 +1,12 @@
-##### CODE 5: EPIC yields prepare
+##### SUPPORT: EPIC yields prepare
 
 #### Author: Michael Wögerer
 #### Date: 07/02/2025
 
 
-source("input/mappings/FAO_eurostat_EPIC_GLOBIOM_crop_mapping.R")
+source(file.path(INPUT_DIR, "mappings/FAO_eurostat_EPIC_GLOBIOM_crop_mapping.R"))
 
-YLDG_files <- list.files("./input/EPIC/YLDG", full.names = T)
+YLDG_files <- list.files(file.path(INPUT_DIR, "EPIC/YLDG"), full.names = T)
 YLDG_files <- grep("REF|ReadMe",YLDG_files,inv=TRUE,value=TRUE)
 YLDG <- YLDG_files[1]
 YLDG_data <- NULL
@@ -18,7 +18,7 @@ for (YLDG in YLDG_files) {
 
 }
 
-DM_conversion <- read.csv("./input/EPIC/DM_content.csv")
+DM_conversion <- read.csv(file.path(INPUT_DIR, "EPIC/DM_content.csv"))
 
 YLDG_data <- YLDG_data %>% left_join(
   DM_conversion %>%
@@ -31,5 +31,5 @@ YLDG_data <- YLDG_data %>% left_join(
 final_yields <-YLDG_data %>% dplyr::select(SimUID, Scen, CROP, YLD)
 
 
-saveRDS(final_yields, file="output/EPIC_yields.rds")
+saveRDS(final_yields, file = EPIC.yields.path)
 

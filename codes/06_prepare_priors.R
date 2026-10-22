@@ -1,4 +1,4 @@
-##### CODE 3: prepare probabilities from Hugo Storm probabilities!
+##### CODE 06: prepare crop priors from Hugo Storm probabilities
 
 #### Author: Michael Wögerer
 #### Date: 08/01/2025

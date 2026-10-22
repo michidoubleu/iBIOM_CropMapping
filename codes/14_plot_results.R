@@ -1,47 +1,4 @@
-library(stringr)
-library(withr)
-require(progress)
-library(tidyr)
-library(dplyr)
-##################################################################################
-
-res <- list.files(paste0("output/",RESULT_TAG,"/"), full.names = T)
-
-res <- res[!grepl("FAILED_", res)]
-res <- res[grepl("rds", res)]
-
-compare.res <- NULL
-full.res <- NULL
-irri.res <- NULL
-rrr <- res[21]
-for (rrr in res) {
-  tryCatch({
-    to.save <- readRDS(rrr)  # Assumes this loads 'to.save'
-
-    compare.res <- bind_rows(compare.res, to.save[[2]])
-    irri.res <- bind_rows(irri.res, to.save[[4]] %>% mutate(region=unique(to.save[[2]]$region),year=unique(to.save[[2]]$year)))
-    full.res <- bind_rows(full.res, to.save[[1]]) %>%
-      dplyr::select(-any_of(c("area", "irrigation")))
-
-  }, error = function(e) {
-    message("Skipping file due to error: ", rrr)
-    # Optionally: message(e$message)
-  })
-}
-
-agg.res <- list(compare=compare.res, res=full.res)
-check <- agg.res$res %>% filter(value>0, lu.to!="OthAgr")
-save(agg.res, file=paste0("output/",RESULT_TAG,"/aggregated/",RESULT_TAG,"_CDDS.RData"))
-
-
-check <- check %>% filter(is.na(YLD))
-
-
-
-
-
-
-
+##### CODE 14: plots of area, production and irrigation vs targets
 library(dplyr)
 library(ggplot2)
 library(patchwork)
@@ -84,10 +41,46 @@ crop_plot <- compare.res %>%
   ) +
   theme_bw()
 
-# Stack the plots
-country_plot / crop_plot
 
 
+
+# Country-level comparison
+country_plot_prod <- compare.res %>%
+  group_by(region) %>%
+  summarise(
+    final_prod = sum(final.prod, na.rm = TRUE),
+    target_prod = sum(target.prod, na.rm = TRUE),
+    pct = 100 * final_prod / target_prod,
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = reorder(region, pct), y = pct)) +
+  geom_col(fill = "steelblue") +
+  geom_hline(yintercept = 100, linetype = "dashed", colour = "red") +
+  labs(
+    title = "Final production as % of target production by country",
+    x = "Country",
+    y = "% of target production"
+  ) +
+  theme_bw()
+
+# Crop-level comparison
+crop_plot_prod <- compare.res %>%
+  group_by(GLOBIOM) %>%
+  summarise(
+    final_prod = sum(final.prod, na.rm = TRUE),
+    target_prod = sum(target.prod, na.rm = TRUE),
+    pct = 100 * final_prod / target_prod,
+    .groups = "drop"
+  ) %>%
+  ggplot(aes(x = reorder(GLOBIOM, pct), y = pct)) +
+  geom_col(fill = "darkgreen") +
+  geom_hline(yintercept = 100, linetype = "dashed", colour = "red") +
+  labs(
+    title = "Final production as % of target production by crop",
+    x = "Crop",
+    y = "% of target production"
+  ) +
+  theme_bw()
 
 
 
@@ -137,4 +130,24 @@ crop_irri_target <- irri.res %>%
   ) +
   theme_bw()
 
-country_irri_target / crop_irri_target
+
+
+# Combine into 2x2 layout
+combined_plot <- (country_plot | crop_plot) /
+  (country_plot_prod | crop_plot_prod) /
+  (country_irri_target | crop_irri_target)
+
+# Create plot folder if needed
+if (!dir.exists(paste0("output/",RESULT_TAG,"/plot"))) {
+  dir.create(paste0("output/",RESULT_TAG,"/plot"))
+}
+
+# Save
+ggsave(
+  filename = paste0("output/",RESULT_TAG,"/plot/area_irrigation_comparison.png"),
+  plot = combined_plot,
+  width = 3840,
+  height = 2160,
+  units = "px",
+  dpi = 300
+)

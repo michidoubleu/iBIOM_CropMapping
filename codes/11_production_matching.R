@@ -1,15 +1,15 @@
-##### CODE 6 (yield-adjustment variant): Production matching via uniform yield scaling
+##### CODE 11: production matching via uniform yield scaling
 ##### Instead of shifting areas between management technologies (LUM classes),
 ##### this approach scales the EPIC yields uniformly per crop so that total
 ##### production matches the production target. The adjusted yields are stored
 ##### in the "YLD" column next to the area ("value") in the final allocation table.
 
-#### Author: auto-generated alternative to 6_production_matching.R
+#### Author: auto-generated alternative to legacy/6_production_matching.R
 #### Date:   June 2025
 
 # ── 1. Build crop × LUM area table ──────────────────────────────────────────
 
-crop.ares.LUM <- temp.LUM %>% group_by(CELLCODE) %>% mutate(total=sum(total_area), share=total_area/total) %>% dplyr::select(CELLCODE, LUM.class, share) %>% full_join(result %>% rename("CELLCODE"="ns")) %>% mutate(value=share*sum_value) %>% dplyr::select(CELLCODE, LUM.class, lu.to, value) %>%
+crop.ares.LUM <- temp.LUM %>% group_by(CELLCODE) %>% mutate(total=sum(total_area), share=total_area/total) %>% dplyr::select(CELLCODE, LUM.class, share) %>% full_join(result %>% filter(lu.to != "OthAgr") %>% rename("CELLCODE"="ns")) %>% mutate(value=share*sum_value) %>% dplyr::select(CELLCODE, LUM.class, lu.to, value) %>%
   mutate(LUM.class = case_when(
     LUM.class %in% lum_crop_map[c(1)] ~ "M1.rf",
     LUM.class %in% lum_crop_map[c(2)] ~ "M2.rf",
@@ -110,7 +110,7 @@ for (i in seq_len(nrow(yield.adj.factors))) {
 final.alloc <- crop.ares.with.yld %>%
   left_join(yield.adj.factors, by = c("lu.to" = "GLOBIOM")) %>%
   mutate(
-    YLD = ifelse(!is.na(adj_factor), YLD * adj_factor, YLD)
+    across(any_of(c("YLD", scale_vars)), ~ ifelse(!is.na(adj_factor), .x * adj_factor, .x))
   ) %>%
   dplyr::select(-adj_factor)
 
@@ -127,12 +127,16 @@ final.alloc <- final.alloc %>%
 final.alloc$region <- lama.reg
 final.alloc$year   <- curr.year
 
-# ── 5. TEST: Verify yield ordering  M5 >= M4 >= M3 >= M2 >= M1  per pixel ───────
-yield_violations <- test_yield_ordering(final.alloc %>% na.omit())
+# ── 5. TESTS ─────────────────────────────────────────────────────────────────
+# Area balance: all crops x management + OthAgr must add up to the LUM crop area (script 05)
+area_balance <- check_area_balance(final.alloc, crop.area)
+
+# Verify yield ordering  M5 >= M4 >= M3 >= M2 >= M1  per pixel
+yield_violations <- test_yield_ordering(final.alloc %>% filter(!is.na(value), !is.na(YLD)))
 
 # ── 6. Diagnostics: area and production summaries ────────────────────────────
 
-final.areas <- final.alloc %>% na.omit() %>%
+final.areas <- final.alloc %>% filter(!is.na(value), !is.na(YLD)) %>%
   group_by(lu.to) %>%
   summarise(final.area = sum(value, na.rm = TRUE)) %>%
   rename("GLOBIOM" = "lu.to") %>%
@@ -156,8 +160,16 @@ crop_status <- data.frame(GLOBIOM = unique(final.alloc$lu.to)) %>%
     yield_ordering_status = ifelse(GLOBIOM %in% failed_crops, "failed", "passed")
   )
 
+# Area-weighted regional means of the additional variables (after scaling)
+final.vars <- final.alloc %>%
+  filter(lu.to != "OthAgr", !is.na(value)) %>%
+  group_by(lu.to) %>%
+  summarise(across(any_of(extra_vars), ~ weighted.mean(.x, value, na.rm = TRUE), .names = "{.col}.mean"), .groups = "drop") %>%
+  rename("GLOBIOM" = "lu.to")
+
 show.res <- final.areas %>%
   left_join(final.prod, by = "GLOBIOM") %>%
+  left_join(final.vars, by = "GLOBIOM") %>%
   left_join(yield.adj.factors, by = "GLOBIOM") %>%
   left_join(crop_status, by = "GLOBIOM")
 

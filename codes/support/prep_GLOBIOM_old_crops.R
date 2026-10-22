@@ -1,23 +1,43 @@
+##### SUPPORT: old GLOBIOM yields, fertilizer (FTN) and irrigation water (WATER -> IRGA) per SimUID from data_crops.gdx
+##### used for crops without new EPIC data
+
 library(gdxrrw)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-igdx("C:/GAMS/49")
+igdx(GAMS_PATH)
 
-source("codes/S3_read_gms.R")
 
 crop_file <- list.files(paste0(INPUT_DIR,"/GLOBIOM/"),pattern = "*.gdx", full.names = TRUE)
 crop.dat <- gdxrrw::rgdx.param(file.path(crop_file), symName = "CROP_DATA")
 
 # recode all factor columns to characters in crop.dat
+crop.dat <- crop.dat %>%
+  mutate(across(where(is.factor), as.character))
+
 crop.dat.proc <- crop.dat %>%
-  mutate(across(where(is.factor), as.character)) %>%
   filter(SPECIES==ALLITEM | ALLITEM=="BaseArea", nchar(ALLTECH)==2) %>%
   mutate(ALLITEM=ifelse(ALLITEM=="BaseArea","BaseArea","Yield")) %>%
   pivot_wider(names_from=ALLITEM, values_from=CROP_DATA, values_fill = 0) %>%
   mutate(BaseArea=BaseArea*1000)
 
-full.map <- readRDS(paste0(INPUT_DIR,"/mappings/SimU_CR_LU_map.rds"))
+# ── 0. Additional variables: fertilizer (FTN, kg N/ha) and irrigation water (WATER) ──
+# For irrigation both are only reported on the IR_* sub-technologies (identical values) -> map to IR
+crop.dat.vars <- crop.dat %>%
+  filter(ALLITEM %in% c("FTN", "WATER")) %>%
+  mutate(ALLTECH = ifelse(grepl("^IR_", ALLTECH), "IR", ALLTECH)) %>%
+  filter(nchar(ALLTECH)==2) %>%
+  group_by(ANYREGION, AllColRow, AltiClass, SlpClass, SoilClass, AEZCLASS, SPECIES, ALLTECH, ALLITEM) %>%
+  summarise(CROP_DATA = mean(CROP_DATA), .groups = "drop") %>%
+  pivot_wider(names_from=ALLITEM, values_from=CROP_DATA)
+
+crop.dat.proc <- crop.dat.proc %>%
+  left_join(crop.dat.vars, by = c("ANYREGION", "AllColRow", "AltiClass", "SlpClass", "SoilClass", "AEZCLASS", "SPECIES", "ALLTECH")) %>%
+  # WATER in 1000 m³/ha -> mm (as EPIC IRGA); rainfed technologies are not irrigated
+  mutate(IRGA = ifelse(ALLTECH == "IR", WATER * 100, 0)) %>%
+  dplyr::select(-WATER)
+
+full.map <- readRDS(SimU.map.path)
 full.map <- full.map %>%
   rename("AllColRow"="ALLCOLROW", "ANYREGION"="ALLCOUNTRY", "AEZCLASS"="AezClass") %>%
   dplyr::select(-ColRow30)
@@ -38,18 +58,25 @@ crop.dat.proc <- crop.dat.proc %>%
   mutate(BaseArea = BaseArea / duplication.fact)
 
 # ── 2. Aggregate per SimUID with Weighted Yields ────────────────────────────
+# Use weighted mean if area exists, fallback to normal mean if area is 0
+area_wmean <- function(x, w) {
+  ifelse(
+    sum(w[!is.na(x)], na.rm = TRUE) > 0,
+    weighted.mean(x, w = w, na.rm = TRUE),
+    mean(x, na.rm = TRUE)
+  )
+}
+
 final.cropdat <- crop.dat.proc %>%
   group_by(SimUID, ALLTECH, SPECIES) %>%
   summarise(
-    # Use weighted mean if area exists, fallback to normal mean if area is 0
-    YLD = ifelse(
-      sum(BaseArea, na.rm = TRUE) > 0,
-      weighted.mean(Yield, w = BaseArea, na.rm = TRUE),
-      mean(Yield, na.rm = TRUE)
-    ),
+    YLD  = area_wmean(Yield, BaseArea),
+    FTN  = area_wmean(FTN, BaseArea),
+    IRGA = area_wmean(IRGA, BaseArea),
     BaseArea = sum(BaseArea, na.rm = TRUE),
     .groups = "drop"
-  )
+  ) %>%
+  mutate(across(c(FTN, IRGA), ~ ifelse(is.nan(.x), NA_real_, .x)))
 
 # ── 3. Duplicate ALLTECH into Specific Scenarios (M1-M5) ────────────────────
 tech_mapping <- tibble(
@@ -62,5 +89,8 @@ final.cropdat <- final.cropdat %>%
   select(-ALLTECH) %>%
   rename(GLOBIOM_abr = SPECIES)
 
-# Save the final file
-saveRDS(final.cropdat, file = paste0(INPUT_DIR,"/EPIC/cropyieldsOLD_GLOBIOM.rds"))
+# Save the final files: yields (as before) and the additional variables (read by 3_load_EPIC.R)
+saveRDS(final.cropdat %>% dplyr::select(SimUID, GLOBIOM_abr, YLD, BaseArea, Scen),
+        file = GLOBIOM.yields.path)
+saveRDS(final.cropdat %>% dplyr::select(SimUID, Scen, GLOBIOM_abr, FTN, IRGA),
+        file = GLOBIOM.vars.path)

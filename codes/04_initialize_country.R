@@ -1,23 +1,15 @@
-##### CODE 0: initialisation for cluster
+##### CODE 04: initialisation per country and year
 
 #### Author: Michael Wögerer
 #### Date: Dec/2024
 
-prior.path      <- file.path(INPUT_DIR, "priors/new/")
-target.path     <- file.path(INPUT_DIR, "targets/")
-EEA.path        <- file.path(INPUT_DIR, "EEA_1km/")
-LUM.path        <- file.path(INPUT_DIR, "LUM_data/")
-mapping.path    <- file.path(INPUT_DIR, "mappings/")
-LUM.energy.path <- file.path(INPUT_DIR, "LUM_fit_with_energy_levels_V5/")
-SimU.path       <- file.path(INPUT_DIR, "SIMU_LAEA/5arcmin_simu_world_ETRS_1989_LAEA_wsimuID.shp")
-#irri.path       <- file.path(INPUT_DIR, "Irrigation_hybrid_layer/comparative_layer_acc_esa_irr.tif")
-irri.path       <- file.path(INPUT_DIR, "irrigation_Bonn/Total_IR_A_2010.tif")
-#### cluster setup
+
+#### current country and year
 
 
-  curr.year <- as.character(clustergrid[JOB,"years"])
-  country <- as.character(clustergrid[JOB,"countries"])
-  lama.reg <- as.character(clustergrid[JOB,"lama.regs"])
+  curr.year <- as.character(country_grid[JOB,"years"])
+  country <- as.character(country_grid[JOB,"countries"])
+  lama.reg <- as.character(country_grid[JOB,"lama.regs"])
 
 
 ##### identify curr prior
@@ -70,7 +62,7 @@ aqua_to_globiom <- tribble(
   "Sugar beet",         "Sgbt",
   "Sunflower",          "Sunf",
   "Maize",              "Corn",
-  "Other cereals",      "Rice",
+  "Rice",               "Rice",
   "Other cereals",      "Srgh",
   "Other cereals",      "Mill",
   "Other cereals",      "WRye",
@@ -79,7 +71,7 @@ aqua_to_globiom <- tribble(
   "Other crops",        "Cass",
   "Other crops",        "SwPo",
   "Other crops",        "SugC",
-  "Other crops",        "Cott",
+  "Cotton",             "Cott",
   "Other crops",        "Rape",
   "Other crops",        "Gnut"
 )

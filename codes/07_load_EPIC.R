@@ -1,4 +1,4 @@
-##### CODE 5: EPIC matiching
+##### CODE 07: EPIC matching — yields and additional variables per cell x management x crop
 
 #### Author: Michael Wögerer
 #### Date: 03/02/2025
@@ -12,23 +12,23 @@ eurostat_GLOBIOM_mapping$GLOBIOM_abr[
   eurostat_GLOBIOM_mapping$GLOBIOM_abr == "Rye"
 ] <- "WRye"
 
-# # Read the shapefile (slow, but only once)
-# EPIC_shp <- read_sf("./input/EPIC/MAP/EUEPIC_SimUID_1k_updt.shp")
-#
-# # Save it as an RDS file
-# saveRDS(EPIC_shp, file = "./input/EPIC/MAP/EUEPIC_SimUID_1k_updt.rds")
-
-EPIC_shp <- readRDS(file.path(INPUT_DIR, "EPIC/MAP/EUEPIC_SimUID_1k_updt.rds"))
-EPIC_shp <- st_crop(EPIC_shp,ext(temp.EEA))
-
-# Ensure CRS is the same
-temp.EEA <- st_transform(temp.EEA, st_crs(EPIC_shp))
-# Perform spatial join (assign CELLCODE to each point in EPIC_shp)
-EPIC_mapping <- st_join(EPIC_shp, temp.EEA, left = FALSE) %>%
-  select(CELLCODE, SimUID) %>% st_drop_geometry()
 
 
-YLDG_data <- readRDS(file.path(INPUT_DIR, "EPIC/EPIC_yields.rds"))
+##### faster replacement
+EEA_lookup <- as.data.table(
+  sf::st_drop_geometry(temp.EEA)
+)[, .(CELLCODE, EOFORIGIN, NOFORIGIN)]
+
+EPIC_mapping <- EPIC_mapping_all[
+  EEA_lookup,
+  on = .(EOFORIGIN, NOFORIGIN),
+  nomatch = 0
+][, .(CELLCODE, SimUID)]
+
+#### END replacement
+
+
+YLDG_data <- readRDS(EPIC.yields.path)
 
 YLDG_data <- YLDG_data %>% filter(SimUID %in% unique(EPIC_mapping$SimUID))
 
@@ -76,22 +76,22 @@ final_yields <- as_tibble(final_yields)
 
 ##### Hopefully temporal fix: Add yield for crops outside of new EPIC runs
 ### Load GLOBIOM crop data
-final.cropdat.old <- readRDS(file.path(INPUT_DIR, "EPIC/cropyieldsOLD_GLOBIOM.rds"))
-
-### added fix to filter out crops where new yields are available
-new.yield.avail <- unique(final_yields$GLOBIOM_abr)
-final.cropdat.old <- final.cropdat.old %>% filter(!GLOBIOM_abr%in%new.yield.avail)
-
-
+final.cropdat.old <- readRDS(GLOBIOM.yields.path)
 
 ### add SimU to cellcode mapping
-simu.shp <- read_sf(SimU.path)
-simu.shp <- st_crop(simu.shp,ext(temp.EEA))
-simu.shp <- simu.shp %>% dplyr::select(-uniqueID)
+simu.shp <- st_crop(simu.shp.all, ext(temp.EEA))
+st_crs(simu.shp) <- st_crs(temp.EEA)
 
 
 simu_mapping <- st_join(simu.shp, temp.EEA, left = FALSE) %>%
   select(CELLCODE, simuID) %>% st_drop_geometry() %>% rename("SimUID"="simuID")
+
+### (the former Croatia-only fix that dropped EPIC crops is no longer needed since the
+###  EPIC point offset is corrected in 03_load_shared_inputs.R — see README, section 5)
+
+### added fix to filter out crops where new yields are available
+new.yield.avail <- unique(final_yields$GLOBIOM_abr)
+final.cropdat.old <- final.cropdat.old %>% filter(!GLOBIOM_abr%in%new.yield.avail)
 
 
 final.cropdat.old <- left_join(simu_mapping %>% mutate(SimUID=as.character(SimUID)),final.cropdat.old) %>% dplyr::select(-SimUID) %>% filter(!GLOBIOM_abr%in%unique(final_yields$GLOBIOM_abr))
@@ -144,6 +144,74 @@ final_yields <- final_yields %>%
     names_to = "Scen",
     values_to = "YLD"
   )
+
+
+##### Additional management-dependent variables (fertilizer, irrigation water, SOC, C flux)
+##### Same sources as the yields: EPIC for crops with EPIC yields, old GLOBIOM otherwise.
+##### Crops without own EPIC data take crosswalk_vars from the most similar EPIC crop (crosswalk).
+##### Remaining gaps are filled with the regional crop x management average.
+vars.long <- data.table(CELLCODE = character(), Scen = character(), GLOBIOM_abr = character())
+EPIC_cell <- NULL
+
+if (file.exists(EPIC.vars.path)) {
+  EPIC_cell <- readRDS(EPIC.vars.path) %>% filter(SimUID %in% unique(EPIC_mapping$SimUID))
+  EPIC_cell <- EPIC_mapping %>%
+    inner_join(EPIC_cell, by = "SimUID") %>%
+    left_join(eurostat_GLOBIOM_mapping %>% dplyr::select(EPIC_abr, GLOBIOM_abr) %>% rename("CROP"="EPIC_abr"), by = "CROP") %>%
+    filter(GLOBIOM_abr %in% new.yield.avail) %>%
+    dplyr::select(CELLCODE, Scen, GLOBIOM_abr, any_of(extra_vars)) %>%
+    as.data.table()
+  vars.long <- rbindlist(list(vars.long, EPIC_cell), fill = TRUE)
+}
+
+if (file.exists(GLOBIOM.vars.path)) {
+  GLOB_vars <- readRDS(GLOBIOM.vars.path) %>% filter(!GLOBIOM_abr %in% new.yield.avail)
+  GLOB_vars <- simu_mapping %>% mutate(SimUID = as.character(SimUID)) %>%
+    inner_join(GLOB_vars %>% mutate(SimUID = as.character(SimUID)), by = "SimUID") %>%
+    dplyr::select(CELLCODE, Scen, GLOBIOM_abr, any_of(extra_vars))
+  vars.long <- rbindlist(list(vars.long, GLOB_vars), fill = TRUE)
+}
+
+for (v in setdiff(extra_vars, names(vars.long))) vars.long[, (v) := NA_real_]
+
+# a cell can overlap several SimUs -> average
+vars.long <- vars.long[, lapply(.SD, mean, na.rm = TRUE), by = .(CELLCODE, Scen, GLOBIOM_abr), .SDcols = extra_vars]
+for (v in extra_vars) set(vars.long, which(is.nan(vars.long[[v]])), v, NA_real_)
+
+# crosswalk: same cell and management class, values of the proxy crop replace the crop's own (GLOBIOM) values
+crosswalk <- read.csv(crosswalk.path) %>%
+  filter(!GLOBIOM_abr %in% new.yield.avail, EPIC_proxy %in% new.yield.avail)
+xw.vars <- intersect(crosswalk_vars, extra_vars)
+
+if (!is.null(EPIC_cell) && nrow(crosswalk) > 0 && length(xw.vars) > 0) {
+  xw <- EPIC_cell[GLOBIOM_abr %in% crosswalk$EPIC_proxy,
+                  lapply(.SD, mean, na.rm = TRUE), by = .(CELLCODE, Scen, EPIC_proxy = GLOBIOM_abr), .SDcols = xw.vars]
+  xw <- merge(xw, as.data.table(crosswalk)[, .(EPIC_proxy, GLOBIOM_abr)], by = "EPIC_proxy", allow.cartesian = TRUE)
+  xw[, EPIC_proxy := NULL]
+  setnames(xw, xw.vars, paste0(xw.vars, ".xw"))
+
+  vars.long <- merge(vars.long, xw, by = c("CELLCODE", "Scen", "GLOBIOM_abr"), all = TRUE)
+  for (v in xw.vars) {
+    vars.long[GLOBIOM_abr %in% crosswalk$GLOBIOM_abr, (v) := get(paste0(v, ".xw"))]
+    vars.long[, (paste0(v, ".xw")) := NULL]
+  }
+  message("  Crosswalk (", paste(xw.vars, collapse = ", "), "): ",
+          paste(crosswalk$GLOBIOM_abr, crosswalk$EPIC_proxy, sep = "<-", collapse = ", "))
+}
+
+final_yields <- final_yields %>%
+  left_join(as_tibble(vars.long), by = c("CELLCODE", "Scen", "GLOBIOM_abr")) %>%
+  group_by(GLOBIOM_abr, Scen) %>%
+  mutate(across(all_of(extra_vars), ~ coalesce(.x, mean(.x, na.rm = TRUE)))) %>%
+  ungroup() %>%
+  mutate(across(all_of(extra_vars), ~ ifelse(is.nan(.x), NA_real_, .x)))
+
+missing.vars <- final_yields %>% group_by(GLOBIOM_abr) %>%
+  summarise(across(all_of(extra_vars), ~ all(is.na(.x)))) %>%
+  tidyr::pivot_longer(-GLOBIOM_abr) %>% filter(value)
+if (nrow(missing.vars) > 0) {
+  message("  No data for: ", paste(missing.vars$GLOBIOM_abr, missing.vars$name, sep = ":", collapse = ", "))
+}
 
 
 #### bugfix if yield is 0 then PRIOR 0

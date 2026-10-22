@@ -1,12 +1,13 @@
+##### SUPPORT: GLOBIOM area and production targets per NUTS from data_crops.gdx (only used if GLOBIOM_targets = TRUE)
+
 library(gdxrrw)
 library(dplyr)
 library(tidyr)
 library(ggplot2)
-igdx("C:/GAMS/49")
+igdx(GAMS_PATH)
 
-source("codes/S3_read_gms.R")
 
-crop_file <- list.files("input/GLOBIOM/",pattern = "*.gdx", full.names = TRUE)
+crop_file <- list.files(file.path(INPUT_DIR, "GLOBIOM"), pattern = "*.gdx", full.names = TRUE)
 crop.dat <- gdxrrw::rgdx.param(file.path(crop_file), symName = "CROP_DATA")
 
 # recode all factor columns to characters in crop.dat
@@ -20,7 +21,7 @@ crop.dat.proc <- crop.dat %>% mutate(across(where(is.factor), as.character)) %>%
 # LUID_map <- read_gms_data("input/mappings/SimUIDlu_map.gms",header.line = 31, data.line = c(33,425446))
 # LUID_map <- LUID_map %>% filter(!grepl("_Any", AltiClass)) %>% rename("AllColRow"="ALLCOLROW", "ANYREGION"="ALLCOUNTRY")
 
-full.map <- readRDS("input/SimU_CR_LU_map.rds")
+full.map <- readRDS(SimU.map.path)
 full.map <- full.map %>% rename("AllColRow"="ALLCOLROW", "ANYREGION"="ALLCOUNTRY", "AEZCLASS"="AezClass") %>% dplyr::select(-ColRow30)
 
 crop.dat.proc <- crop.dat.proc %>% left_join(full.map)
@@ -34,12 +35,12 @@ final.cropdat <- crop.dat.proc %>% group_by(SimUID, SPECIES) %>% summarise(BaseA
 
 ### map to CAPRI regions for crop processing
 # capri.targets <- read.csv("input/CAPRI_CAPREG/preprocessed_CAPREG.csv", row.names = 1)
-reg.map <- readRDS(file="./input/mappings/SimU_NUTS_weighted.rds") #### BUG, this needs to be updated as other mapping
+reg.map <- readRDS(file = file.path(mapping.path, "SimU_NUTS_weighted.rds")) #### BUG, this needs to be updated as other mapping
 
 reg.map <- reg.map %>% mutate(NUTS_ID=ifelse(substr(NUTS_ID,1,2)=="BG","BG",NUTS_ID))
 
 crop.targets.GLOB <- final.cropdat %>% mutate(SimUID=as.numeric(SimUID)) %>% left_join(reg.map) %>% na.omit() %>% mutate(BaseArea=BaseArea*area.share, production=production*area.share) %>% group_by(NUTS_ID, SPECIES) %>% summarise(BaseArea=sum(BaseArea), production=sum(production))
 
 ### save res
-saveRDS(crop.targets.GLOB, file = "input/croptargets_GLOBIOM.rds")
+saveRDS(crop.targets.GLOB, file = GLOBIOM.target.path)
 

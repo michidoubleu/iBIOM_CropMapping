@@ -26,7 +26,7 @@ This plot visualizes the spatial distribution of target utilized agricultural ar
 Corresponding production targets are visualized below. Differences in the spatial patterns between area and production emphasize the variability in regional crop yields.
 ![Regional Crop Production Targets](images/target_maps_prod_facetted.png)
 
-*(These plots were generated using the standalone `plot_targets.R` script, which aggregates regional statistics from the CDDS configuration).*
+*(These plots were generated using the standalone `codes/support/plot_targets.R` script, which aggregates regional statistics from the CDDS configuration).*
 
 ## 2. Data
 
@@ -43,38 +43,104 @@ A regional biophysical modeling framework (EPIC-IIASA) provides simulated yield 
 
 ## 3. Methodology & Code Workflow
 
-The routine is executed per year $t$ and per region $j$. The main entry point for local execution is `main.R`. When `CLUSTER = FALSE` in `user_config.R`, the pipeline iterates locally over the regions and years specified in `clustergrid` via a sequential chain of 7 scripts.
+The routine is executed per year $t$ and per region $j$, locally. Copy `user_config_TEMPLATE.R` to `user_config.R`, set `INPUT_DIR`, `RUN_YEARS` and `RESULT_TAG`, and run `main.R`. It sources the numbered scripts in `codes/` in order:
+
+```
+codes/
+├── 01–03   run once     settings, input preparation, shared inputs
+├── 04–12   per country  allocation of areas, irrigation, yields and additional variables
+├── 13–15   after loop   summary over all countries, plots, SimU / GLOBIOM LU aggregation
+├── support/            prep_* (input preparation), fun_* (helper functions), plot_targets.R
+└── legacy/             earlier versions and the former Condor cluster setup, not used by main.R
+```
+
+### 3.0 Setup and Input Preparation
+* `01_settings.R`: Input paths, prepared-input file paths, and the additional variables carried along with the yields (`extra_vars`, `scale_vars`).
+* `02_prepare_inputs.R`: Runs a `codes/support/prep_*.R` script only if its output file does not exist yet (e.g. converting the old GLOBIOM `data_crops.gdx` to rds). To re-run a step, delete its output or list it in `FORCE_PREP` in `user_config.R`.
+
+  | Step | Support script | Output |
+  |---|---|---|
+  | `country_grid` | `prep_country_grid.R` | `output/country_grid.rds` |
+  | `EPIC_map` | `prep_EPIC_map.R` | `EPIC/MAP/EUEPIC_SimUID_1k_updt.rds` |
+  | `SimU_CR_LU_map` | `prep_SimU_CR_LU_map.R` | `mappings/SimU_CR_LU_map.rds` |
+  | `EPIC_yields` | `prep_EPIC_yields.R` | `EPIC/EPIC_yields.rds` |
+  | `EPIC_vars` | `prep_EPIC_vars.R` | `EPIC/EPIC_vars.rds` (FTN, IRGA, OCPD, dOCPD) |
+  | `GLOBIOM_old_crops` | `prep_GLOBIOM_old_crops.R` | `EPIC/cropyieldsOLD_GLOBIOM.rds`, `EPIC/cropvarsOLD_GLOBIOM.rds` |
+  | `GLOBIOM_targets` | `prep_GLOBIOM_targets.R` | `targets/croptargets_GLOBIOM.rds` (only if `GLOBIOM_targets = TRUE`) |
+
+* `03_load_shared_inputs.R`: Loads the country grid, the EPIC point map and the SimU shapes once for all countries.
+* `SKIP_EXISTING` (`user_config.R`): if `TRUE`, the country loop skips every country x year whose result `output/<RESULT_TAG>/<reg>_<year>_<RESULT_TAG>.rds` exists. The rds is written only after the country outputs (12), so an interrupted run resumes at the first incomplete country. Delete the rds (or set `FALSE`) to recompute a country.
 
 ### 3.1 Initialization and Unharmonized Data
 In the first step, land-use information from the LUM geodatabase is aggregated to the EEA 1 km² pixel level to define the crop production areas. The crop probabilities are applied to the given arable areas, yielding an initial, unharmonized distribution.
 
-* `0_initialize_routine.R`: Sets up the environment, determining file paths and loading required geographic boundaries and mappings.
-* `1_prepare_startmap_Linda_LUM.R`: Prepares the starting agricultural areas using the 100m LUM raster overlaid on the 1km² EEA grid.
-* `2_prepare_priors_Storm.R`: Generates prior crop probabilities per grid cell based on multi-band suitability rasters.
-* `3_load_EPIC.R`: Loads and joins spatial EPIC crop yield data, mapping EPIC simulation points to the EEA grid.
+* `04_initialize_country.R`: Determines the input files and NUTS cells for the current country and year.
+* `05_prepare_startmap.R`: Prepares the starting agricultural areas using the 100m LUM raster overlaid on the 1km² EEA grid.
+* `06_prepare_priors.R`: Generates prior crop probabilities per grid cell based on multi-band suitability rasters.
+* `07_load_EPIC.R`: Maps EPIC yields and the additional variables (fertilizer, irrigation water, SOC, C flux) per management class to the EEA grid. Crops without new EPIC data use the old GLOBIOM data.
 
 ### 3.2 Harmonization of Area
 The utilized agricultural area for each crop is adjusted so that the sum across all cells within a region matches the target agricultural area. A bias correction approach is applied, proportionally adjusting the prior probabilities to ensure the total allocated area aligns with the regional total. 
 
-* `4_prepare_targets.R`: Prepares the top-level area and production targets. This dynamically toggles between **GLOBIOM** (`croptargets_GLOBIOM.rds`) and historical **FAO** (`faostat_avg_1998_2002.rds`) targets. 
-* `5_area_matching.R`: The core spatial allocation engine. It uses the `downscalr` package to distribute the regional targets into the 1km² crop area using the adjusted priors as weights.
+* `08_prepare_targets.R`: Prepares the area, production and irrigation targets. This toggles between **GLOBIOM** (`croptargets_GLOBIOM.rds`) and historical **FAO** (`faostat_avg_1998_2002.rds`) targets; irrigation targets come from AQUASTAT.
+* `09_area_matching.R`: The core spatial allocation engine. It uses the `downscalr` package to distribute the regional targets into the 1km² crop area using the adjusted priors as weights.
+* `10_irri_matching.R`: Allocates the irrigation targets using the irrigated area per cell binned into likelihood classes (91–100 ha first, cells with 0 ha excluded).
 
 ### 3.3 Harmonization of Production
-Having harmonized the areas for all crops, these areas are combined with input intensity levels from the LUM geodatabase and pixel-specific yield data from EPIC-IIASA. Harmonization is achieved by intelligently shifting crop areas between different management intensity levels (LUM classes `M1.rf` to `M5.rf`) where yields differ, running iterative redistributions until production targets are met.
+Having harmonized the areas for all crops, these areas are combined with input intensity levels from the LUM geodatabase and pixel-specific yield data from EPIC-IIASA. The yields are scaled uniformly per crop and region so that the production targets are met; the additional variables are scaled with the same factor.
 
-* `6_production_matching.R`: Refines the area allocation to meet production targets by shifting crop areas between management intensity levels.
+* `11_production_matching.R`: Builds the final allocation per cell × management class × crop and applies the yield adjustment. Includes automatic checks: the allocated area must equal the LUM crop area (in total and per cell), and yields must increase with management intensity.
+* `12_country_outputs.R`: Writes national files (area, yield and each additional variable) as GeoPackage, GeoParquet (if the GDAL driver is available) and Cloud-Optimized GeoTIFF.
 
 ## 4. Results
 
-After the sequence completes, `main.R` packages the outputs (`final.alloc`, `show.res`, `result`) and saves them as `.rds` files into the `output/res_v1/` directory for the specific region and year. The harmonized area and production maps reflect the spatial distribution of cultivation and the impact of yield variations.
+For each region and year, `main.R` saves `final.alloc`, `show.res`, `result` and the irrigation overview as `.rds` files into `output/<RESULT_TAG>/`, and the national files into `output/<RESULT_TAG>/country_res/`. After the country loop:
+
+* `13_summarise.R`: Combines all countries into one table (`agg.res`, saved in `output/<RESULT_TAG>/aggregated/`).
+* `14_plot_results.R`: Plots area, production and irrigation against the targets.
+* `15_aggregate_SimU_LU.R`: Aggregates areas (sum) and per-ha variables (area-weighted) to SimU and the GLOBIOM LU grid.
+* `16_run_report.R`: Writes a run report (`output/<RESULT_TAG>/report/`, Markdown + self-contained HTML, figures and csv tables) with target fulfilment for area, production and irrigation, yield shifters, the additional variables, the SimU coverage and the git commit of the code. Can also be run on its own after a finished run: `source("user_config.R"); source("./codes/01_settings.R"); source("./codes/16_run_report.R")`.
 
 > [!NOTE] 
 > **Input Information Needed:** Final Output Visualizations 
-> To generate the final output maps (e.g., Wheat area and production in specific countries or regions as referenced in the paper), run the post-processing and aggregation scripts:
-> * `7_summarise_CDDS.R`
-> * `8_aggreg_res_SIMU_LU_grid.R`
-> 
-> *Once aggregated, plot the results to show the spatial heterogeneity of crop allocations.*
 > 
 > `[Insert plots of harmonized crop area here]`
 > `[Insert plots of harmonized crop production here]`
+
+## 5. Additional Variables, Crosswalk and Data Fixes
+
+### 5.1 Additional per-ha variables
+Next to the yield (`YLD`, t/ha), every crop × management class × cell carries:
+
+| Column | Description | Unit | EPIC source | Old GLOBIOM source (`data_crops.gdx`) |
+|---|---|---|---|---|
+| `FTN` | N fertilization | kg N/ha | `N` scenario code of the runs (e.g. `N250`) | `FTN` |
+| `IRGA` | irrigation water | mm | `IRGA/` (M5.ir only, 0 for rainfed) | `WATER` × 100 (1000 m³/ha → mm), IR only |
+| `OCPD` | topsoil organic C stock (SOC) | t C/ha | `OCPD/` `OCPD.init` | – |
+| `dOCPD` | annual change in SOC (C flux / emissions) | t C/ha/yr | `OCPD/` `dOCPD` | – |
+
+A crop takes its values from the new 1 km² EPIC runs if EPIC simulates it; otherwise from the old GLOBIOM data. The variables listed in `scale_vars` (`01_settings.R`; default `FTN`, `IRGA`, `dOCPD`) are multiplied by the same per-crop production adjustment factor as the yield. The SOC stock `OCPD` is not scaled: a soil C stock does not depend on the yield bias, and scaling it produced artefacts (e.g. potato in Croatia, factor 0.34, would get 10 t C/ha next to 22–39 t C/ha for the other crops in the same cells).
+
+### 5.2 Crop crosswalk for crops without EPIC data
+GLOBIOM provides no SOC or C flux, so crops not simulated by EPIC take `crosswalk_vars` (default `OCPD`, `dOCPD`) from the EPIC data of the most similar simulated crop, in the same cell and management class. The table is `codes/support/crop_crosswalk_EPIC.csv`:
+
+| Crop | EPIC proxy | Rationale |
+|---|---|---|
+| Srgh (sorghum) | Corn | C4 summer cereal with similar phenology and management |
+| Mill (millet) | Corn | C4 summer cereal |
+| SugC (sugar cane) | Corn | C4 perennial grass; closest C4 crop simulated (not grown in the EU) |
+| BeaD (dry beans) | Soya | N-fixing grain legume |
+| ChkP (chickpea) | Soya | N-fixing grain legume |
+| Gnut (groundnut) | Soya | N-fixing oilseed legume |
+| Cott (cotton) | Sunf | warm-season dicot row crop, deep rooting, long season |
+| Cass (cassava) | Pota | root/tuber crop, similar residue and soil disturbance at harvest |
+| SwPo (sweet potato) | Pota | root/tuber crop |
+
+`FTN` and `IRGA` keep the crop-specific GLOBIOM values by default: EPIC applies the same N schedule to all crops (up to 250 kg N/ha at M5, also for soybean), which would strongly overstate N for legumes. To take them from the crosswalk as well, add them to `crosswalk_vars`. Cyprus and Malta have no EPIC coverage, so no crosswalk values exist there.
+
+### 5.3 Data fixes and their cause
+* **EPIC point offset (`03_load_shared_inputs.R`).** The EPIC SimUID points (`EUEPIC_SimUID_1k_updt`) should sit exactly at the 1 km cell centres, but ~13% of them (623k of 4.9M) are shifted by up to 0.5 m (e.g. x mod 1000 = 499.73). The fast coordinate join to the EEA grid requires an exact match, so these points were silently dropped. The coordinates are now rounded to the cell origin. Effect: in Croatia almost all points are affected — only 20 of 16,604 crop cells (the border pixels) were matched before, 16,593 after. Elsewhere the effect is negligible (+1 cell in SI, +4 in HU; Austria results are identical).
+* **Croatia override removed (`07_load_EPIC.R`).** Because only the border pixels of Croatia had EPIC data (a consequence of the offset above), Croatia used old GLOBIOM yields for all crops that GLOBIOM covers. With the offset fixed, Croatia is handled like every other country.
+* **OthAgr double count (`11_production_matching.R`).** OthAgr was allocated once per LUM class and again as its own row; it is now only added once. An automatic area-balance check after each country verifies that crops × management classes + OthAgr equal the LUM crop area, in total and per cell.
+* **Irrigation likelihood classes (`10_irri_matching.R`).** The irrigated area per cell (0–100 ha) is binned into 10 classes; irrigation targets are filled from 91–100 ha downwards, and cells with 0 ha never receive irrigation. Before, the bins counted upwards and were filled starting from the least irrigated cells.
+* **GLOBIOM LU codes (`15_aggregate_SimU_LU.R`).** `AllColRow` is taken from the LU codes (`ALLCOLROW`), as used in the GLOBIOM GDX, instead of the CR codes.

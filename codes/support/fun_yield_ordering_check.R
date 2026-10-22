@@ -12,9 +12,10 @@
 test_yield_ordering <- function(alloc_df) {
 
   # Only test actual crop rows (not OthAgr) with non-NA yields
-  test.data <- alloc_df %>% na.omit() %>% distinct() %>%
-    filter(lu.to != "OthAgr", !is.na(YLD)) %>%
-    dplyr::select(CELLCODE, lu.to, LUM.class, YLD)
+  test.data <- alloc_df %>%
+    dplyr::select(CELLCODE, lu.to, LUM.class, YLD) %>%
+    na.omit() %>% distinct() %>%
+    filter(lu.to != "OthAgr", !is.na(YLD))
 
   # Expected LUM classes in decreasing order of intensity
   lum_cols <- c("M6.rf","M5.rf", "M4.rf", "M3.rf", "M2.rf", "M1.rf")
