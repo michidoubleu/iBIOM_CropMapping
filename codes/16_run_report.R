@@ -202,6 +202,49 @@ if (!is.null(simu.cov)) {
   ggsave(file.path(fig.dir, "06_simu_area_coverage.png"), fig.simu, width = 3000, height = 1200, units = "px", dpi = 300)
 }
 
+## EU maps facetted by crop (same style as codes/support/plot_targets.R)
+maps.ok <- requireNamespace("giscoR", quietly = TRUE) && requireNamespace("sf", quietly = TRUE)
+if (maps.ok) {
+  eu_map <- tryCatch(giscoR::gisco_get_countries(region = "Europe"), error = function(e) NULL)
+  maps.ok <- !is.null(eu_map)
+}
+if (maps.ok) {
+  eu_map <- dplyr::filter(eu_map, CNTR_ID %in% names(country_names))
+  map_theme <- theme_minimal() +
+    theme(legend.position = "bottom", legend.key.width = unit(3, "cm"), panel.grid.major = element_blank(),
+          axis.text = element_blank(), axis.ticks = element_blank(),
+          plot.title = element_text(face = "bold", size = 14), strip.text = element_text(face = "bold"))
+  crop_map <- function(df, var) {
+    full <- tidyr::expand_grid(region = names(country_names), crop = sort(unique(df$crop))) %>%
+      left_join(df %>% select(region, crop, value = {{ var }}), by = c("region", "crop"))
+    eu_map %>% inner_join(full, by = c("CNTR_ID" = "region"), relationship = "many-to-many")
+  }
+  save_map <- function(p, name) ggsave(file.path(fig.dir, name), p, width = 10, height = 8, dpi = 300, bg = "white")
+  map_base <- function(d) ggplot(d) + geom_sf(aes(fill = value), color = "gray30", linewidth = 0.2) +
+    facet_wrap(~ crop, nrow = 3) + coord_sf(xlim = c(-12, 35), ylim = c(35, 70), expand = FALSE) + map_theme
+
+  irri.lev <- c("< 25%", "25-50%", "50-75%", "75-<100%", "met")
+  save_map(map_base(crop_map(irri.tab %>%
+                               mutate(v = factor(ifelse(irri.met, "met", as.character(cut(irri.pct, c(-Inf, 25, 50, 75, Inf), irri.lev[1:4], right = FALSE))),
+                                                 levels = irri.lev)), v) %>%
+                      mutate(value = factor(ifelse(is.na(value), "no target", as.character(value)), levels = c(irri.lev, "no target")))) +
+             scale_fill_manual(values = setNames(c("#b2182b", "#ef8a62", "#fee08b", "#91bfdb", "#2166ac", "grey85"), c(irri.lev, "no target")),
+                               drop = FALSE, name = "Irrigated area reached") +
+             labs(title = "Irrigated area reached (% of target); grey = no irrigation target"),
+           "07_map_irrigation_fulfilment.png")
+  save_map(map_base(crop_map(crop.tab, adj_factor)) +
+             scale_fill_gradient2(trans = "log", low = "#b2182b", mid = "white", high = "#2166ac", midpoint = 0,
+                                  limits = shift.lim, oob = scales::squish, breaks = c(0.2, 0.5, 1, 2, 5),
+                                  name = "Yield shifter (log scale)", na.value = "grey85") +
+             labs(title = "Yield shifter per country and crop; grey = crop not in the targets"),
+           "08_map_yield_shifter.png")
+}
+
+## figures shown in the GitHub README (images/ is tracked in git)
+for (fig in c("01_target_fulfilment.png", "07_map_irrigation_fulfilment.png", "08_map_yield_shifter.png"))
+  if (file.exists(file.path(fig.dir, fig))) file.copy(file.path(fig.dir, fig), file.path("images", paste0("results_", fig)), overwrite = TRUE)
+map_md <- function(name, alt) if (maps.ok) c(sprintf("![%s](fig/%s)", alt, name), "") else NULL
+
 #### report text ---------------------------------------------------------------
 n.ctry   <- length(res.files)
 eu.irri  <- filter(irri.country, region == "EU")
@@ -316,11 +359,13 @@ L <- c(
   "",
   md_table(area.md, align = c("l", rep("r", 5))),
   "",
+  "",
   "### 4.2 Production",
   "",
   "Production is met by construction through the yield shifter (section 5).",
   "",
   md_table(prod.md, align = c("l", rep("r", 5))),
+  "",
   "",
   "### 4.3 Irrigated area",
   "",
@@ -334,6 +379,8 @@ L <- c(
   "",
   "![Irrigation heatmap](fig/03_irrigation_heatmap.png)",
   "",
+  map_md("07_map_irrigation_fulfilment.png", "Irrigation map"),
+  "",
   "## 5. Yield shifters",
   "",
   sprintf("The shifter rescales the input yields so that national production per crop equals the target. Values far from 1 mean the input yields (EPIC or old GLOBIOM) do not fit the national statistics. Flagged: < %g or > %g; watch list: %g-%g and %g-%g.",
@@ -342,6 +389,8 @@ L <- c(
   "![Yield shifters](fig/04_yield_shifter_heatmap.png)",
   "",
   "![Yield shifter histogram](fig/05_yield_shifter_histogram.png)",
+  "",
+  map_md("08_map_yield_shifter.png", "Yield shifter map"),
   "",
   sprintf("**Flagged (< %g or > %g):**", shift.lim[1], shift.lim[2]),
   "",

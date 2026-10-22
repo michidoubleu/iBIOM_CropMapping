@@ -14,19 +14,22 @@ One critical aspect of these interactions is the intensity of agricultural input
 
 In this repository, we propose a crop and intensity mapping and harmonization approach designed for both ex-post and ex-ante modeling applications. Our method generates spatially explicit maps of crop distribution and management intensity, integrating probabilistic crop type estimates with agricultural statistics targets and high-resolution land-use data.
 
-### Input Targets Visualization
+### How well the targets are met
 
-The following maps illustrate the top-level agricultural statistics targets used to calibrate the downscaling pipeline. These targets, derived from historical FAO statistics or GLOBIOM baselines, define the total area and production constraints that the high-resolution crop allocations must meet at the national and regional level.
+The national targets (FAO statistics, 2000) for crop area, production and irrigated area per crop are the constraints the 1 km allocation has to meet. The figures below are from the latest full run (`iBIOM_v2`, all EU-27 countries + UK). They are written by `codes/16_run_report.R`, which also produces a detailed run report with tables per country and crop (`output/<RESULT_TAG>/report/`).
 
-**Regional Crop Area Targets (ha):**
-This plot visualizes the spatial distribution of target utilized agricultural area per crop across EU member states. It highlights regional concentrations, such as dense wheat areas in Western Europe and sunflower cultivation in Eastern Europe.
-![Regional Crop Area Targets](images/target_maps_area_facetted.png)
+**Area, production and irrigated area as % of the target, by country and by crop.**
+Area and production targets are met exactly for every country and crop. Irrigated area reaches 93% of the EU target. Irrigation is only placed in cells with irrigated area in the Bonn layer, and in some countries there is too little crop area in those cells (e.g. Malta, Lithuania, Slovenia, Greece, Spain).
+![Target fulfilment](images/results_01_target_fulfilment.png)
 
-**Regional Crop Production Targets (t):**
-Corresponding production targets are visualized below. Differences in the spatial patterns between area and production emphasize the variability in regional crop yields.
-![Regional Crop Production Targets](images/target_maps_prod_facetted.png)
+**Irrigated area reached per country and crop.**
+![Irrigation target fulfilment](images/results_07_map_irrigation_fulfilment.png)
 
-*(These plots were generated using the standalone `codes/support/plot_targets.R` script, which aggregates regional statistics from the CDDS configuration).*
+**Yield shifter per country and crop.**
+Production is matched by scaling the input yields (EPIC, or old GLOBIOM data) per country and crop with a yield shifter = target production / production with the input yields. Values near 1 (white) mean the input yields agree with the statistics; red means the input yields are too high, blue too low. Fertilizer N, irrigation water and the SOC change are scaled with the same factor.
+![Yield shifter](images/results_08_map_yield_shifter.png)
+
+*(Maps of the targets themselves can be produced with the standalone `codes/support/plot_targets.R`.)*
 
 ## 2. Data
 
