@@ -14,22 +14,18 @@ One critical aspect of these interactions is the intensity of agricultural input
 
 In this repository, we propose a crop and intensity mapping and harmonization approach designed for both ex-post and ex-ante modeling applications. Our method generates spatially explicit maps of crop distribution and management intensity, integrating probabilistic crop type estimates with agricultural statistics targets and high-resolution land-use data.
 
-### How well the targets are met
+### Results
 
-The national targets (FAO statistics, 2000) for crop area, production and irrigated area per crop are the constraints the 1 km allocation has to meet. The figures below are from the latest full run (`iBIOM_v2`, all EU-27 countries + UK). They are written by `codes/16_run_report.R`, which also produces a detailed run report with tables per country and crop (`output/<RESULT_TAG>/report/`).
+The figures below are from the latest full run (`iBIOM_v2`, EU-27 + UK, 2000). They are written by `codes/16_run_report.R`, which also produces a detailed run report with tables per country and crop (`output/<RESULT_TAG>/report/`).
 
-**Area, production and irrigated area as % of the target, by country and by crop.**
-Area and production targets are met exactly for every country and crop. Irrigated area reaches 93% of the EU target. Irrigation is only placed in cells with irrigated area in the Bonn layer, and in some countries there is too little crop area in those cells (e.g. Malta, Lithuania, Slovenia, Greece, Spain).
-![Target fulfilment](images/results_01_target_fulfilment.png)
+**Final 1 km map.** Every 1 km cell holds the area of each crop in each management class, together with yield, fertilizer N, irrigation water and soil carbon. Summarised here per cell: the crop with the largest area, the share of the cell under the target crops, the area-weighted management intensity class and the mean fertilizer N.
+![EU overview of the downscaled crop map](images/results_00_eu_overview.png)
 
-**Irrigated area reached per country and crop.**
+**Targets.** The national area and production targets (FAO statistics) are met exactly for every country and crop. Irrigated area reaches 93% of the EU target: irrigation is only placed in cells with irrigated area in the Bonn layer, and in some countries there is too little crop area in those cells.
 ![Irrigation target fulfilment](images/results_07_map_irrigation_fulfilment.png)
 
-**Yield shifter per country and crop.**
-Production is matched by scaling the input yields (EPIC, or old GLOBIOM data) per country and crop with a yield shifter = target production / production with the input yields. Values near 1 (white) mean the input yields agree with the statistics; red means the input yields are too high, blue too low. Fertilizer N, irrigation water and the SOC change are scaled with the same factor.
+**Yield shifter.** Production is matched by scaling the input yields (EPIC, or old GLOBIOM data) per country and crop with a yield shifter = target production / production with the input yields. Values near 1 (white) mean the input yields agree with the statistics; red means the input yields are too high, blue too low. Fertilizer N, irrigation water and the SOC change are scaled with the same factor.
 ![Yield shifter](images/results_08_map_yield_shifter.png)
-
-*(Maps of the targets themselves can be produced with the standalone `codes/support/plot_targets.R`.)*
 
 ## 2. Data
 

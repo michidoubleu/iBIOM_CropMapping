@@ -38,7 +38,12 @@ commit.url  <- paste0(remote, "/commit/", commit)
 res.files <- list.files(paste0("output/", RESULT_TAG), pattern = paste0("^[A-Z]{2}_[0-9]{4}_", RESULT_TAG, "[.]rds$"), full.names = TRUE)
 failed    <- list.files(paste0("output/", RESULT_TAG), pattern = "^FAILED_")
 
-show.all <- list(); irri.all <- list(); cell.all <- list()
+## crop groups for the EU overview map
+crop_groups <- c(Whea = "Wheat", Barl = "Barley", WRye = "Rye", Corn = "Maize", Rape = "Rapeseed",
+                 Sunf = "Sunflower", Sgbt = "Sugar beet", Pota = "Potato", Rice = "Rice",
+                 Soya = "Soy & pulses", BeaD = "Soy & pulses", ChkP = "Soy & pulses", Gnut = "Soy & pulses")
+
+show.all <- list(); irri.all <- list(); cell.all <- list(); map.all <- list()
 for (f in res.files) {
   x   <- readRDS(f)
   reg <- substr(basename(f), 1, 2)
@@ -49,11 +54,24 @@ for (f in res.files) {
                          na.YLD = sum(value[is.na(YLD)]), na.FTN = sum(value[is.na(FTN)]), na.IRGA = sum(value[is.na(IRGA)]),
                          na.OCPD = sum(value[is.na(OCPD)]), na.dOCPD = sum(value[is.na(dOCPD)])),
                      by = .(crop = lu.to != "OthAgr")][, region := reg]
-  rm(x, a); gc()
+  ## per 1 km cell (target crops only): crop area, dominant crop group, mean intensity class, mean fertilizer N
+  a <- a[lu.to != "OthAgr" & value > 0]
+  a[, `:=`(grp = ifelse(lu.to %in% names(crop_groups), crop_groups[lu.to], "Other"),
+           cls = as.integer(substr(LUM.class, 2, 2)))]
+  dom <- a[, .(v = sum(value)), by = .(CELLCODE, grp)][order(-v)][, .SD[1], by = CELLCODE][, .(CELLCODE, dominant = grp)]
+  map.all[[f]] <- a[, .(crop.area = sum(value), intensity = sum(value * cls) / sum(value),
+                        FTN = sum(value * FTN, na.rm = TRUE) / sum(value[!is.na(FTN)])), by = CELLCODE][dom, on = "CELLCODE"]
+  rm(x, a, dom); gc()
 }
 show.all <- bind_rows(show.all)
 irri.all <- bind_rows(irri.all) %>% filter(lu.to != "OthAgr")
 cell.all <- rbindlist(cell.all)
+map.all  <- rbindlist(map.all)
+map.all[, `:=`(x = as.numeric(sub("^1kmE([0-9]+)N.*$", "\\1", CELLCODE)) * 1000 + 500,
+               y = as.numeric(sub("^.*N([0-9]+)$", "\\1", CELLCODE)) * 1000 + 500)]
+map.all <- map.all[, .(crop.area = sum(crop.area), intensity = weighted.mean(intensity, crop.area),
+                       FTN = weighted.mean(FTN, crop.area, na.rm = TRUE), dominant = dominant[which.max(crop.area)]),
+                   by = .(x, y)]   # cells on a border appear in two countries
 run.year <- paste(sort(unique(show.all$year)), collapse = ", ")
 
 fmt  <- function(x, d = 0) formatC(x, format = "f", digits = d, big.mark = ",")
@@ -209,6 +227,7 @@ if (maps.ok) {
   maps.ok <- !is.null(eu_map)
 }
 if (maps.ok) {
+  europe_bg <- eu_map
   eu_map <- dplyr::filter(eu_map, CNTR_ID %in% names(country_names))
   map_theme <- theme_minimal() +
     theme(legend.position = "bottom", legend.key.width = unit(3, "cm"), panel.grid.major = element_blank(),
@@ -240,8 +259,41 @@ if (maps.ok) {
            "08_map_yield_shifter.png")
 }
 
+## EU overview of the final 1 km result (ETRS89-LAEA)
+if (maps.ok) {
+  bg   <- sf::st_transform(europe_bg, 3035)
+  xlim <- c(2.55e6, 7.35e6); ylim <- c(1.40e6, 5.45e6)
+  grp.cols <- c(Wheat = "#d9a400", Barley = "#f3dc8b", Rye = "#8c6d31", Maize = "#e6550d", Rapeseed = "#b5bd1e",
+                Sunflower = "#f781bf", `Sugar beet` = "#7570b3", Potato = "#c51b7d", Rice = "#2b8cbe",
+                `Soy & pulses` = "#1b9e77", Other = "#9e9e9e")
+  ov_panel <- function(fill_aes, scale, title) {
+    ggplot() +
+      geom_sf(data = bg, fill = "grey93", colour = NA) +
+      geom_raster(data = map.all, aes(x, y, fill = {{ fill_aes }})) +
+      geom_sf(data = bg, fill = NA, colour = "grey45", linewidth = 0.15) +
+      scale +
+      coord_sf(crs = 3035, xlim = xlim, ylim = ylim, expand = FALSE, datum = NA) +
+      labs(title = title, x = NULL, y = NULL) +
+      theme_void(base_size = 10) +
+      theme(plot.title = element_text(face = "bold", hjust = 0.02), legend.position = "right",
+            panel.background = element_rect(fill = "#dfe9f2", colour = NA))
+  }
+  map.all[, dominant := factor(dominant, levels = names(grp.cols))]
+  p1 <- ov_panel(dominant, scale_fill_manual(values = grp.cols, name = NULL, drop = FALSE), "Dominant crop")
+  p2 <- ov_panel(pmin(crop.area, 1) * 100, scale_fill_distiller(palette = "YlGn", direction = 1, limits = c(0, 100),
+                                                                 name = "% of cell"), "Crop area share")
+  p3 <- ov_panel(intensity, scale_fill_viridis_c(option = "viridis", limits = c(1, 5), name = "1 = low\n5 = high"),
+                 "Management intensity (mean class)")
+  p4 <- ov_panel(pmin(FTN, 200), scale_fill_viridis_c(option = "rocket", direction = -1, limits = c(0, 200),
+                                                      name = "kg N/ha"), "Fertilizer N (capped at 200)")
+  fig.ov <- (p1 | p2) / (p3 | p4) +
+    plot_annotation(title = sprintf("Downscaled crop map, EU-27 + UK, %s (1 km, run %s)", run.year, RESULT_TAG),
+                    theme = theme(plot.title = element_text(face = "bold", size = 14)))
+  ggsave(file.path(fig.dir, "00_eu_overview.png"), fig.ov, width = 12, height = 10.5, dpi = 220, bg = "white")
+}
+
 ## figures shown in the GitHub README (images/ is tracked in git)
-for (fig in c("01_target_fulfilment.png", "07_map_irrigation_fulfilment.png", "08_map_yield_shifter.png"))
+for (fig in c("00_eu_overview.png", "07_map_irrigation_fulfilment.png", "08_map_yield_shifter.png"))
   if (file.exists(file.path(fig.dir, fig))) file.copy(file.path(fig.dir, fig), file.path("images", paste0("results_", fig)), overwrite = TRUE)
 map_md <- function(name, alt) if (maps.ok) c(sprintf("![%s](fig/%s)", alt, name), "") else NULL
 
@@ -300,6 +352,7 @@ L <- c(
   if (!is.null(simu.cov)) sprintf("* **SimU/LU aggregation:** %.1f%% of the 1 km grid area ends up in the SimU table; losses are largest in coastal countries (%s), presumably 1 km cells that do not intersect a SimU polygon.",
           pct(sum(simu.cov$simu), sum(simu.cov$grid)), paste(sprintf("%s %.0f%%", head(simu.cov$region, 6), head(simu.cov$pct, 6)), collapse = ", ")),
   "",
+  map_md("00_eu_overview.png", "EU overview"),
   "## 2. What the pipeline does",
   "",
   "The pipeline distributes national crop statistics (FAO-based targets for area, production and irrigated area per crop) onto the 1 km² EEA grid, using the LUMASUS land-use map (LUM classes 2001-2005 = management intensity M1-M5) as the available cropland and crop suitability priors to decide which crop goes where. Per country:",
