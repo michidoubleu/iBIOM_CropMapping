@@ -54,13 +54,15 @@ for (f in res.files) {
                          na.YLD = sum(value[is.na(YLD)]), na.FTN = sum(value[is.na(FTN)]), na.IRGA = sum(value[is.na(IRGA)]),
                          na.OCPD = sum(value[is.na(OCPD)]), na.dOCPD = sum(value[is.na(dOCPD)])),
                      by = .(crop = lu.to != "OthAgr")][, region := reg]
-  ## per 1 km cell (target crops only): crop area, dominant crop group, mean intensity class, mean fertilizer N
+  ## per 1 km cell (target crops only): crop area, dominant crop group, mean intensity class, area-weighted variable means
   a <- a[lu.to != "OthAgr" & value > 0]
   a[, `:=`(grp = ifelse(lu.to %in% names(crop_groups), crop_groups[lu.to], "Other"),
            cls = as.integer(substr(LUM.class, 2, 2)))]
   dom <- a[, .(v = sum(value)), by = .(CELLCODE, grp)][order(-v)][, .SD[1], by = CELLCODE][, .(CELLCODE, dominant = grp)]
+  wm  <- function(v, w) if (any(!is.na(v))) sum(w * v, na.rm = TRUE) / sum(w[!is.na(v)]) else NA_real_
   map.all[[f]] <- a[, .(crop.area = sum(value), intensity = sum(value * cls) / sum(value),
-                        FTN = sum(value * FTN, na.rm = TRUE) / sum(value[!is.na(FTN)])), by = CELLCODE][dom, on = "CELLCODE"]
+                        FTN = wm(FTN, value), IRGA = wm(IRGA, value), OCPD = wm(OCPD, value), dOCPD = wm(dOCPD, value)),
+                    by = CELLCODE][dom, on = "CELLCODE"]
   rm(x, a, dom); gc()
 }
 show.all <- bind_rows(show.all)
@@ -70,7 +72,9 @@ map.all  <- rbindlist(map.all)
 map.all[, `:=`(x = as.numeric(sub("^1kmE([0-9]+)N.*$", "\\1", CELLCODE)) * 1000 + 500,
                y = as.numeric(sub("^.*N([0-9]+)$", "\\1", CELLCODE)) * 1000 + 500)]
 map.all <- map.all[, .(crop.area = sum(crop.area), intensity = weighted.mean(intensity, crop.area),
-                       FTN = weighted.mean(FTN, crop.area, na.rm = TRUE), dominant = dominant[which.max(crop.area)]),
+                       FTN = weighted.mean(FTN, crop.area, na.rm = TRUE), IRGA = weighted.mean(IRGA, crop.area, na.rm = TRUE),
+                       OCPD = weighted.mean(OCPD, crop.area, na.rm = TRUE), dOCPD = weighted.mean(dOCPD, crop.area, na.rm = TRUE),
+                       dominant = dominant[which.max(crop.area)]),
                    by = .(x, y)]   # cells on a border appear in two countries
 run.year <- paste(sort(unique(show.all$year)), collapse = ", ")
 
@@ -290,10 +294,32 @@ if (maps.ok) {
     plot_annotation(title = sprintf("Downscaled crop map, EU-27 + UK, %s (1 km, run %s)", run.year, RESULT_TAG),
                     theme = theme(plot.title = element_text(face = "bold", size = 14)))
   ggsave(file.path(fig.dir, "00_eu_overview.png"), fig.ov, width = 12, height = 10.5, dpi = 220, bg = "white")
+
+  ## irrigation water and soil carbon (area-weighted over all target crops, rainfed included; capped at the 99th percentile)
+  cap <- function(v) signif(quantile(v, 0.99, na.rm = TRUE), 2)
+  irga.cap <- cap(map.all$IRGA); ocpd.cap <- cap(map.all$OCPD); docpd.cap <- cap(abs(map.all$dOCPD))
+  p5 <- ov_panel(pmin(IRGA, irga.cap), scale_fill_gradientn(colours = c("#ebe4cf", "#9ecae1", "#2171b5", "#08306b"),
+                                                            trans = "sqrt", limits = c(0, irga.cap),
+                                                            name = "mm\n(0 = beige)", na.value = NA),
+                 sprintf("Irrigation water requirement (capped at %s)", irga.cap))
+  p6 <- ov_panel(pmin(OCPD, ocpd.cap), scale_fill_distiller(palette = "YlOrBr", direction = 1, limits = c(0, ocpd.cap),
+                                                            name = "t C/ha", na.value = NA),
+                 sprintf("Soil organic carbon stock (capped at %s)", ocpd.cap))
+  ## the only emission variable is the SOC change: a loss of 1 t C is an emission of 44/12 t CO2
+  p7 <- ov_panel(pmax(pmin(-dOCPD * 44 / 12, docpd.cap * 44 / 12), -docpd.cap * 44 / 12),
+                 scale_fill_gradient2(low = "#2166ac", mid = "white", high = "#b2182b", midpoint = 0,
+                                      limits = c(-docpd.cap, docpd.cap) * 44 / 12, name = "t CO2/ha/yr", na.value = NA),
+                 "CO2 emission from SOC change (- = uptake)")
+  fig.var <- (p5 | p6 | p7) +
+    plot_annotation(title = sprintf("Irrigation water and soil carbon, EU-27 + UK, %s (1 km, mean over the target crops, run %s)",
+                                    run.year, RESULT_TAG),
+                    caption = "No EPIC soil carbon data for Cyprus and Malta.",
+                    theme = theme(plot.title = element_text(face = "bold", size = 14)))
+  ggsave(file.path(fig.dir, "09_eu_water_soil_carbon.png"), fig.var, width = 17, height = 5.6, dpi = 220, bg = "white")
 }
 
 ## figures shown in the GitHub README (images/ is tracked in git)
-for (fig in c("00_eu_overview.png", "01_target_fulfilment.png", "07_map_irrigation_fulfilment.png", "08_map_yield_shifter.png"))
+for (fig in c("00_eu_overview.png", "09_eu_water_soil_carbon.png", "01_target_fulfilment.png", "07_map_irrigation_fulfilment.png", "08_map_yield_shifter.png"))
   if (file.exists(file.path(fig.dir, fig))) file.copy(file.path(fig.dir, fig), file.path("images", paste0("results_", fig)), overwrite = TRUE)
 map_md <- function(name, alt) if (maps.ok) c(sprintf("![%s](fig/%s)", alt, name), "") else NULL
 
@@ -353,6 +379,7 @@ L <- c(
           pct(sum(simu.cov$simu), sum(simu.cov$grid)), paste(sprintf("%s %.0f%%", head(simu.cov$region, 6), head(simu.cov$pct, 6)), collapse = ", ")),
   "",
   map_md("00_eu_overview.png", "EU overview"),
+  map_md("09_eu_water_soil_carbon.png", "Irrigation water and soil carbon"),
   "## 2. What the pipeline does",
   "",
   "The pipeline distributes national crop statistics (FAO-based targets for area, production and irrigated area per crop) onto the 1 km² EEA grid, using the LUMASUS land-use map (LUM classes 2001-2005 = management intensity M1-M5) as the available cropland and crop suitability priors to decide which crop goes where. Per country:",

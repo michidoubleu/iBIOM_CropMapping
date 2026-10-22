@@ -21,6 +21,9 @@ The figures below are from the latest full run (`iBIOM_v2`, EU-27 + UK, 2000). T
 **Final 1 km map.** Every 1 km cell holds the area of each crop in each management class, together with yield, fertilizer N, irrigation water and soil carbon. Summarised here per cell: the crop with the largest area, the share of the cell under the target crops, the area-weighted management intensity class and the mean fertilizer N.
 ![EU overview of the downscaled crop map](images/results_00_eu_overview.png)
 
+**Irrigation water and soil carbon.** Area-weighted means over all target crops per 1 km cell (rainfed area included, so most cells outside the Mediterranean need no irrigation water). Emissions are shown as CO2 from the change in soil organic carbon (1 t C lost = 44/12 t CO2); there is no separate emission variable. Cyprus and Malta have no EPIC soil carbon data.
+![Irrigation water and soil carbon](images/results_09_eu_water_soil_carbon.png)
+
 **Targets.** The national area and production targets come from FAO statistics and are shown below per crop (maps made with `codes/support/plot_targets.R`). Differences between the area and production patterns reflect regional differences in crop yields.
 ![Regional Crop Area Targets](images/target_maps_area_facetted.png)
 ![Regional Crop Production Targets](images/target_maps_prod_facetted.png)
