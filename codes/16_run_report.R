@@ -293,7 +293,7 @@ if (maps.ok) {
 }
 
 ## figures shown in the GitHub README (images/ is tracked in git)
-for (fig in c("00_eu_overview.png", "07_map_irrigation_fulfilment.png", "08_map_yield_shifter.png"))
+for (fig in c("00_eu_overview.png", "01_target_fulfilment.png", "07_map_irrigation_fulfilment.png", "08_map_yield_shifter.png"))
   if (file.exists(file.path(fig.dir, fig))) file.copy(file.path(fig.dir, fig), file.path("images", paste0("results_", fig)), overwrite = TRUE)
 map_md <- function(name, alt) if (maps.ok) c(sprintf("![%s](fig/%s)", alt, name), "") else NULL
 
